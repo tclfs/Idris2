@@ -3,6 +3,7 @@ module Compiler.Scheme.Racket
 import Compiler.Common
 import Compiler.CompileExpr
 import Compiler.Generated
+import Compiler.Opts.ToplevelConstants
 import Compiler.Scheme.Common
 
 import Core.Options
@@ -12,6 +13,7 @@ import Core.Directory
 import Core.Name
 import Core.TT
 import Protocol.Hex
+import Libraries.Data.SortedSet
 import Libraries.Utils.Path
 
 import Data.List
@@ -33,10 +35,10 @@ findRacket =
   do env <- idrisGetEnv "RACKET"
      pure $ fromMaybe "/usr/bin/env racket" env
 
-findRacoExe : IO String
+findRacoExe : IO (List String)
 findRacoExe =
   do env <- idrisGetEnv "RACKET_RACO"
-     pure $ (fromMaybe "/usr/bin/env raco" env) ++ " exe"
+     pure $ (maybe ["/usr/bin/env", "raco"] singleton env) ++ ["exe"]
 
 schHeader : Bool -> String -> String
 schHeader prof libs = """
@@ -80,36 +82,36 @@ racketString : String -> String
 racketString cs = strCons '"' (showRacketString (unpack cs) "\"")
 
 mutual
-  racketPrim : Int -> ExtPrim -> List NamedCExp -> Core String
-  racketPrim i GetField [NmPrimVal _ (Str s), _, _, struct,
+  racketPrim : SortedSet Name -> Int -> ExtPrim -> List NamedCExp -> Core String
+  racketPrim cs i GetField [NmPrimVal _ (Str s), _, _, struct,
                          NmPrimVal _ (Str fld), _]
-      = do structsc <- schExp racketPrim racketString 0 struct
+      = do structsc <- schExp cs (racketPrim cs) racketString 0 struct
            pure $ "(" ++ s ++ "-" ++ fld ++ " " ++ structsc ++ ")"
-  racketPrim i GetField [_,_,_,_,_,_]
+  racketPrim cs i GetField [_,_,_,_,_,_]
       = pure "(error \"bad getField\")"
-  racketPrim i SetField [NmPrimVal _ (Str s), _, _, struct,
+  racketPrim cs i SetField [NmPrimVal _ (Str s), _, _, struct,
                          NmPrimVal _ (Str fld), _, val, world]
-      = do structsc <- schExp racketPrim racketString 0 struct
-           valsc <- schExp racketPrim racketString 0 val
+      = do structsc <- schExp cs (racketPrim cs) racketString 0 struct
+           valsc <- schExp cs (racketPrim cs) racketString 0 val
            pure $ mkWorld $
                 "(set-" ++ s ++ "-" ++ fld ++ "! " ++ structsc ++ " " ++ valsc ++ ")"
-  racketPrim i SetField [_,_,_,_,_,_,_,_]
+  racketPrim cs i SetField [_,_,_,_,_,_,_,_]
       = pure "(error \"bad setField\")"
-  racketPrim i SysCodegen []
+  racketPrim cs i SysCodegen []
       = pure $ "\"racket\""
-  racketPrim i OnCollect [_, p, c, world]
-      = do p' <- schExp racketPrim racketString 0 p
-           c' <- schExp racketPrim racketString 0 c
+  racketPrim cs i OnCollect [_, p, c, world]
+      = do p' <- schExp cs (racketPrim cs) racketString 0 p
+           c' <- schExp cs (racketPrim cs) racketString 0 c
            pure $ mkWorld $ "(blodwen-register-object " ++ p' ++ " " ++ c' ++ ")"
-  racketPrim i OnCollectAny [p, c, world]
-      = do p' <- schExp racketPrim racketString 0 p
-           c' <- schExp racketPrim racketString 0 c
+  racketPrim cs i OnCollectAny [p, c, world]
+      = do p' <- schExp cs (racketPrim cs) racketString 0 p
+           c' <- schExp cs (racketPrim cs) racketString 0 c
            pure $ mkWorld $ "(blodwen-register-object " ++ p' ++ " " ++ c' ++ ")"
-  racketPrim i MakeFuture [_, work]
-      = do work' <- schExp racketPrim racketString 0 work
+  racketPrim cs i MakeFuture [_, work]
+      = do work' <- schExp cs (racketPrim cs) racketString 0 work
            pure $ mkWorld $ "(blodwen-make-future " ++ work' ++ ")"
-  racketPrim i prim args
-      = schExtCommon racketPrim racketString i prim args
+  racketPrim cs i prim args
+      = schExtCommon cs (racketPrim cs) racketString i prim args
 
 -- Reference label for keeping track of loaded external libraries
 data Loaded : Type where
@@ -388,9 +390,10 @@ compileToRKT c appdir tm outfile
          l <- newRef {t = List String} Loaded []
          s <- newRef {t = List String} Structs []
          fgndefs <- traverse (getFgnCall appdir) ndefs
-         compdefs <- traverse (getScheme racketPrim racketString) ndefs
+         (sortedDefs, constants) <- sortDefs ndefs
+         compdefs <- traverse (getScheme constants (racketPrim constants) racketString) sortedDefs
          let code = fastConcat (map snd fgndefs ++ compdefs)
-         main <- schExp racketPrim racketString 0 ctm
+         main <- schExp constants (racketPrim constants) racketString 0 ctm
          support <- readDataFile "racket/support.rkt"
          ds <- getDirectives Racket
          extraRuntime <- getExtraRuntime ds
@@ -448,8 +451,7 @@ compileExpr mkexec c s tmpDir outputDir tm outfile
 
          ok <- the (Core Int) $ if mkexec
                   then logTime 1 "Build racket" $
-                         coreLift $
-                           system (raco ++ " -o " ++ outBinAbs ++ " " ++ outRktAbs)
+                         coreLift $ system $ raco ++ ["-o", outBinAbs, outRktAbs]
                   else pure 0
          if ok == 0
             then do -- TODO: add launcher script
@@ -472,7 +474,7 @@ executeExpr :
 executeExpr c s tmpDir tm
     = do Just sh <- compileExpr False c s tmpDir tmpDir tm "_tmpracket"
             | Nothing => throw (InternalError "compileExpr returned Nothing")
-         coreLift_ $ system sh
+         coreLift_ $ system [sh]
 
 export
 codegenRacket : Codegen

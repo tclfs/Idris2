@@ -13,6 +13,7 @@ on:
       - '**.md'
       - 'CONTRIBUTORS'
       - 'LICENSE'
+      - 'CHANGELOG.md'
       - '.github/workflows/ci-bootstrap.yml'
       - '.github/workflows/ci-lint.yml'
       - '.github/workflows/ci-sphinx.yml'
@@ -32,8 +33,12 @@ on:
       - '.github/workflows/ci-sphinx.yml'
       - '.github/workflows/ci-super-linter.yml'
 
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
 env:
-  IDRIS2_VERSION: 0.5.1 # For previous-version build
+  IDRIS2_VERSION: 0.6.0 # For previous-version build
 
 jobs:
 
@@ -50,9 +55,9 @@ jobs:
         id: get_commit_message
         run: |
           if   [[ '${{ github.event_name }}' == 'push' ]]; then
-            echo "::set-output name=commit_message::$(git log --format=%B -n 1 HEAD)"
+            echo "commit_message=$(git log --format=%B -n 1 HEAD | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
           elif [[ '${{ github.event_name }}' == 'pull_request' ]]; then
-            echo "::set-output name=commit_message::$(git log --format=%B -n 1 HEAD^2)"
+            echo "commit_message=$(git log --format=%B -n 1 HEAD^2 | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
           fi
 
     outputs:
@@ -218,7 +223,7 @@ jobs:
       - name: Bootstrap
         run: c:\msys64\usr\bin\bash -l -c "cd $env:PWD && make bootstrap"
       - name: Bootstrap test
-        run: c:\msys64\usr\bin\bash -l -c "cd $env:PWD && make bootstrap-test"
+        run: c:\msys64\usr\bin\bash -l -c "cd $env:PWD && make ci-windows-bootstrap-test"
       - name: Install
         run: c:\msys64\usr\bin\bash -l -c "cd $env:PWD && make install"
       - name: Artifact Idris2 from chez
@@ -231,9 +236,9 @@ jobs:
     needs: quick-check
     runs-on: ubuntu-latest
     if: |
-      !contains(needs.initialise.outputs.commit_message, '[ci:')
+      false && (!contains(needs.initialise.outputs.commit_message, '[ci:')
       || contains(needs.initialise.outputs.commit_message, '[ci: nix]')
-      || contains(needs.initialise.outputs.commit_message, '[ci: chez]')
+      || contains(needs.initialise.outputs.commit_message, '[ci: chez]'))
     steps:
     - uses: actions/checkout@v2
       with:
@@ -241,7 +246,10 @@ jobs:
     - uses: cachix/install-nix-action@v12
       with:
         install_url: https://github.com/numtide/nix-flakes-installer/releases/download/nix-2.4pre20210126_f15f0b8/install
-    - run: nix-build -A checks.x86_64-linux
+    - name: Test with nix
+      env:
+        NIX_CONFIG: "experimental-features = nix-command flakes"
+      run: nix build .#checks.x86_64-linux.idris2Tests -L
 
   # RACKET
 
@@ -301,7 +309,7 @@ jobs:
       - name: Build self-hosted
         run: make all IDRIS2_BOOT="idris2 -Werror" && make install
       - name: Test self-hosted
-        run: make test INTERACTIVE=''
+        run: make ci-ubuntu-test INTERACTIVE=''
 
   macos-self-host-chez:
     needs: macos-bootstrap-chez
@@ -326,7 +334,7 @@ jobs:
         run: make all IDRIS2_BOOT="idris2 -Werror" && make install
         shell: bash
       - name: Test self-hosted
-        run: make test INTERACTIVE=''
+        run: make ci-macos-test INTERACTIVE=''
         shell: bash
 
   # RACKET
@@ -353,7 +361,7 @@ jobs:
       - name: Build self-hosted
         run: make all IDRIS2_BOOT="idris2 -Werror" && make install
       - name: Test self-hosted
-        run: make test INTERACTIVE=''
+        run: make ci-ubuntu-test INTERACTIVE=''
 
   ubuntu-self-host-previous-version:
     needs: quick-check
@@ -381,7 +389,7 @@ jobs:
       - name: Build self-hosted from previous version
         run: make all IDRIS2_BOOT="idris2 -Werror" && make install
       - name: Test self-hosted from previous version
-        run: make test INTERACTIVE=''
+        run: make ci-ubuntu-test INTERACTIVE=''
       - name: Artifact Idris2
         uses: actions/upload-artifact@v2
         with:
@@ -440,7 +448,7 @@ jobs:
           c:\msys64\usr\bin\bash -l -c "cd $env:PWD && make"
       # TODO: fix the broken tests!
       # - name: Test
-      #  run: c:\msys64\usr\bin\bash -l -c "cd $env:PWD && make test"
+      #  run: c:\msys64\usr\bin\bash -l -c "cd $env:PWD && make ci-windows-test"
       - name: Install
         run: c:\msys64\usr\bin\bash -l -c "cd $env:PWD && make install"
 

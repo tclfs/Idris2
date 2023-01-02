@@ -849,6 +849,23 @@ data WhyErased a
 
 %name WhyErased why
 
+export
+Functor WhyErased where
+  map f Placeholder = Placeholder
+  map f Impossible = Impossible
+  map f (Dotted x) = Dotted (f x)
+
+export
+Foldable WhyErased where
+  foldr c n (Dotted x) = c x n
+  foldr c n _ = n
+
+export
+Traversable WhyErased where
+  traverse f Placeholder = pure Placeholder
+  traverse f Impossible = pure Impossible
+  traverse f (Dotted x) = Dotted <$> f x
+
 public export
 data Term : List Name -> Type where
      Local : FC -> (isLet : Maybe Bool) ->
@@ -1235,9 +1252,14 @@ namespace NVar
 
 export
 weakenNVar : SizeOf ns -> NVar name inner -> NVar name (ns ++ inner)
-weakenNVar p x = case sizedView p of
-  Z     => x
-  (S p) => later (weakenNVar p x)
+-- weakenNVar p x = case sizedView p of
+--   Z     => x
+--   (S p) => later (weakenNVar p x)
+-- ^^^^ The above is the correct way, the below involves a proof which
+-- is nonsense, but it's okay because it's deleted, and all we're doing is
+-- adding a number so let's do it the quick way
+weakenNVar (MkSizeOf s _)  (MkNVar {i} p)
+    = (MkNVar {i = plus s i} (believe_me p))
 
 export
 insertNVar : SizeOf outer ->
@@ -1776,7 +1798,7 @@ addMetas res ns (TDelay fc x t y)
     = addMetas res (addMetas res ns t) y
 addMetas res ns (TForce fc r x) = addMetas res ns x
 addMetas res ns (PrimVal fc c) = ns
-addMetas res ns (Erased fc i) = ns
+addMetas res ns (Erased fc i) = foldr (flip $ addMetas res) ns i
 addMetas res ns (TType fc u) = ns
 
 -- Get the metavariable names in a term
@@ -1811,7 +1833,7 @@ addRefs ua at ns (TDelay fc x t y)
     = addRefs ua at (addRefs ua at ns t) y
 addRefs ua at ns (TForce fc r x) = addRefs ua at ns x
 addRefs ua at ns (PrimVal fc c) = ns
-addRefs ua at ns (Erased fc i) = ns
+addRefs ua at ns (Erased fc i) = foldr (flip $ addRefs ua at) ns i
 addRefs ua at ns (TType fc u) = ns
 
 -- As above, but for references. Also flag whether a name is under an
@@ -1871,6 +1893,7 @@ covering
       showApp (TDelay _ _ _ tm) [] = "%Delay " ++ show tm
       showApp (TForce _ _ tm) [] = "%Force " ++ show tm
       showApp (PrimVal _ c) [] = show c
+      showApp (Erased _ (Dotted t)) [] = ".(" ++ show t ++ ")"
       showApp (Erased _ _) [] = "[__]"
       showApp (TType _ u) [] = "Type"
       showApp _ [] = "???"

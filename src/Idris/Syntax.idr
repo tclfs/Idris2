@@ -266,7 +266,10 @@ mutual
 
   public export
   data PDataDecl' : Type -> Type where
-       MkPData : FC -> (tyname : Name) -> (tycon : PTerm' nm) ->
+       MkPData : FC -> (tyname : Name) ->
+                 -- if we have already declared the type earlier using `MkPLater`,
+                 -- we are allowed to leave the telescope out here
+                 (tycon : Maybe (PTerm' nm)) ->
                  (opts : List DataOpt) ->
                  (datacons : List (PTypeDecl' nm)) -> PDataDecl' nm
        MkPLater : FC -> (tyname : Name) -> (tycon : PTerm' nm) -> PDataDecl' nm
@@ -583,6 +586,11 @@ data DocDirective : Type where
   AModule : ModuleIdent -> DocDirective
 
 public export
+data HelpType : Type where
+  GenericHelp : HelpType
+  DetailedHelp : (details : String) -> HelpType
+
+public export
 data REPLCmd : Type where
      NewDefn : List PDecl -> REPLCmd
      Eval : PTerm -> REPLCmd
@@ -595,7 +603,7 @@ data REPLCmd : Type where
      Edit : REPLCmd
      Compile : PTerm -> String -> REPLCmd
      Exec : PTerm -> REPLCmd
-     Help : REPLCmd
+     Help : HelpType -> REPLCmd
      TypeSearch : PTerm -> REPLCmd
      FuzzyTypeSearch : PTerm -> REPLCmd
      DebugInfo : Name -> REPLCmd

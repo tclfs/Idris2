@@ -42,8 +42,9 @@ idrisTestsBasic = MkTestPool "Fundamental language features" [] Nothing
        "basic051", "basic052", "basic053", "basic054", "basic055",
        "basic056", "basic057", "basic058", "basic059", "basic060",
        "basic061", "basic062", "basic063", "basic064", "basic065",
-       "basic066", "basic067", "basic068",
+       "basic066", "basic067", "basic068", "basic069",
        "idiom001",
+       "dotted001",
        "rewrite001",
        "interpolation001", "interpolation002", "interpolation003",
        "interpolation004"]
@@ -77,7 +78,7 @@ idrisTestsWarning = MkTestPool "Warnings" [] Nothing
 
 idrisTestsFailing : TestPool
 idrisTestsFailing = MkTestPool "Failing blocks" [] Nothing
-      ["failing001", "failing002", "failing003"
+      ["failing001", "failing002", "failing003", "failing004"
       ]
 
 idrisTestsError : TestPool
@@ -87,12 +88,13 @@ idrisTestsError = MkTestPool "Error messages" [] Nothing
        "error006", "error007", "error008", "error009", "error010",
        "error011", "error012", "error013", "error014", "error015",
        "error016", "error017", "error018", "error019", "error020",
-       "error021", "error022", "error023",
+       "error021", "error022", "error023", "error024", "error025",
        -- Parse errors
        "perror001", "perror002", "perror003", "perror004", "perror005",
        "perror006", "perror007", "perror008", "perror009", "perror010",
        "perror011", "perror012", "perror013", "perror014", "perror015",
-       "perror016", "perror017", "perror018", "perror019"]
+       "perror016", "perror017", "perror018", "perror019", "perror020",
+       "perror021", "perror022", "perror023", "perror024", "perror025"]
 
 idrisTestsInteractive : TestPool
 idrisTestsInteractive = MkTestPool "Interactive editing" [] Nothing
@@ -146,6 +148,7 @@ idrisTestsPerformance = MkTestPool "Performance" [] Nothing
        -- pose interesting challenges for the elaborator
       ["perf001", "perf002", "perf003", "perf004", "perf005",
        "perf007", "perf008", "perf009", "perf010", "perf011",
+       "perf012",
        "perf2202"]
 
 idrisTestsRegression : TestPool
@@ -163,12 +166,12 @@ idrisTestsRegression = MkTestPool "Various regressions" [] Nothing
 idrisTestsData : TestPool
 idrisTestsData = MkTestPool "Data and record types" [] Nothing
       [-- Data types
-       "data001",
+       "data001", "data002",
        -- Records, access and dependent update
        "record001", "record002", "record003", "record004", "record005",
        "record006", "record007", "record008", "record009", "record010",
        "record011", "record012", "record013", "record014", "record015",
-       "record016", "record017", "record018" ]
+       "record016", "record017", "record018", "record019" ]
 
 idrisTestsBuiltin : TestPool
 idrisTestsBuiltin = MkTestPool "Builtin types and functions" [] Nothing
@@ -187,7 +190,7 @@ idrisTestsEvaluator = MkTestPool "Evaluation" [] Nothing
 
 idrisTestsREPL : TestPool
 idrisTestsREPL = MkTestPool "REPL commands and help" [] Nothing
-      [ "repl001", "repl002"
+      [ "repl001", "repl002", "repl003", "repl004", "repl005"
       ]
 
 idrisTestsAllSchemes : Requirement -> TestPool
@@ -243,14 +246,14 @@ idrisTestsReflection = MkTestPool "Quotation and Reflection" [] Nothing
 idrisTestsWith : TestPool
 idrisTestsWith = MkTestPool "With abstraction" [] Nothing
       [ "with001", "with002", "with004", "with005", "with006", "with007",
-        "with008", "with009", "with010"
+        "with008", "with009", "with010", "with011"
       ]
 
 idrisTestsIPKG : TestPool
 idrisTestsIPKG = MkTestPool "Package and .ipkg files" [] Nothing
       ["pkg001", "pkg002", "pkg003", "pkg004", "pkg005", "pkg006", "pkg007",
        "pkg008", "pkg009", "pkg010", "pkg011", "pkg012", "pkg013", "pkg014",
-       "pkg015"]
+       "pkg015", "pkg016", "pkg017" ]
 
 idrisTests : TestPool
 idrisTests = MkTestPool "Misc" [] Nothing
@@ -260,11 +263,11 @@ idrisTests = MkTestPool "Misc" [] Nothing
        "eta001",
        -- Modules and imports
        "import001", "import002", "import003", "import004", "import005", "import006",
-       "import007",
+       "import007", "import008",
        -- Implicit laziness, lazy evaluation
        "lazy001", "lazy002",
        -- Namespace blocks
-       "namespace001", "namespace002",
+       "namespace001", "namespace002", "namespace003",
        -- Parameters blocks
        "params001", "params002", "params003",
        -- Larger programs arising from real usage. Typically things with
@@ -305,6 +308,7 @@ chezTests = MkTestPool "Chez backend" [] (Just Chez)
     , "newints"
     , "integers"
     , "nat2fin"
+    , "inlineiobind"
     , "semaphores001"
     , "semaphores002"
     , "perf001"

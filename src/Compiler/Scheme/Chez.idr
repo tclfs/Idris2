@@ -3,6 +3,7 @@ module Compiler.Scheme.Chez
 import Compiler.Common
 import Compiler.CompileExpr
 import Compiler.Generated
+import Compiler.Opts.ToplevelConstants
 import Compiler.Scheme.Common
 
 import Core.Context
@@ -13,6 +14,7 @@ import Core.Options
 import Core.TT
 import Protocol.Hex
 import Libraries.Utils.Path
+import Libraries.Data.SortedSet
 
 import Data.List
 import Data.List1
@@ -140,37 +142,37 @@ mutual
   getFArgs arg = throw (GenericMsg (getFC arg) ("Badly formed c call argument list " ++ show arg))
 
   export
-  chezExtPrim : Int -> ExtPrim -> List NamedCExp -> Core String
-  chezExtPrim i GetField [NmPrimVal _ (Str s), _, _, struct,
+  chezExtPrim : SortedSet Name -> Int -> ExtPrim -> List NamedCExp -> Core String
+  chezExtPrim cs i GetField [NmPrimVal _ (Str s), _, _, struct,
                           NmPrimVal _ (Str fld), _]
-      = do structsc <- schExp chezExtPrim chezString 0 struct
+      = do structsc <- schExp cs (chezExtPrim cs) chezString 0 struct
            pure $ "(ftype-ref " ++ s ++ " (" ++ fld ++ ") " ++ structsc ++ ")"
-  chezExtPrim i GetField [_,_,_,_,_,_]
+  chezExtPrim cs i GetField [_,_,_,_,_,_]
       = pure "(blodwen-error-quit \"bad getField\")"
-  chezExtPrim i SetField [NmPrimVal _ (Str s), _, _, struct,
+  chezExtPrim cs i SetField [NmPrimVal _ (Str s), _, _, struct,
                           NmPrimVal _ (Str fld), _, val, world]
-      = do structsc <- schExp chezExtPrim chezString 0 struct
-           valsc <- schExp chezExtPrim chezString 0 val
+      = do structsc <- schExp cs (chezExtPrim cs) chezString 0 struct
+           valsc <- schExp cs (chezExtPrim cs) chezString 0 val
            pure $ mkWorld $
               "(ftype-set! " ++ s ++ " (" ++ fld ++ ") " ++ structsc ++
               " " ++ valsc ++ ")"
-  chezExtPrim i SetField [_,_,_,_,_,_,_,_]
+  chezExtPrim cs i SetField [_,_,_,_,_,_,_,_]
       = pure "(blodwen-error-quit \"bad setField\")"
-  chezExtPrim i SysCodegen []
+  chezExtPrim cs i SysCodegen []
       = pure $ "\"chez\""
-  chezExtPrim i OnCollect [_, p, c, world]
-      = do p' <- schExp chezExtPrim chezString 0 p
-           c' <- schExp chezExtPrim chezString 0 c
+  chezExtPrim cs i OnCollect [_, p, c, world]
+      = do p' <- schExp cs (chezExtPrim cs) chezString 0 p
+           c' <- schExp cs (chezExtPrim cs) chezString 0 c
            pure $ mkWorld $ "(blodwen-register-object " ++ p' ++ " " ++ c' ++ ")"
-  chezExtPrim i OnCollectAny [p, c, world]
-      = do p' <- schExp chezExtPrim chezString 0 p
-           c' <- schExp chezExtPrim chezString 0 c
+  chezExtPrim cs i OnCollectAny [p, c, world]
+      = do p' <- schExp cs (chezExtPrim cs) chezString 0 p
+           c' <- schExp cs (chezExtPrim cs) chezString 0 c
            pure $ mkWorld $ "(blodwen-register-object " ++ p' ++ " " ++ c' ++ ")"
-  chezExtPrim i MakeFuture [_, work]
-      = do work' <- schExp chezExtPrim chezString 0 work
+  chezExtPrim cs i MakeFuture [_, work]
+      = do work' <- schExp cs (chezExtPrim cs) chezString 0 work
            pure $ "(blodwen-make-future " ++ work' ++ ")"
-  chezExtPrim i prim args
-      = schExtCommon chezExtPrim chezString i prim args
+  chezExtPrim cs i prim args
+      = schExtCommon cs (chezExtPrim cs) chezString i prim args
 
 -- Reference label for keeping track of loaded external libraries
 export
@@ -203,12 +205,17 @@ cftySpec fc (CFStruct n t) = pure $ "(* " ++ n ++ ")"
 cftySpec fc t = throw (GenericMsg fc ("Can't pass argument of type " ++ show t ++
                          " to foreign function"))
 
+locateLib : {auto c : Ref Ctxt Defs} -> String -> String -> Core String
+locateLib appdir clib
+    = do (fname, fullname) <- locate clib
+         copyLib (appdir </> fname, fullname)
+         pure fname
+
 export
 loadLib : {auto c : Ref Ctxt Defs} ->
           String -> String -> Core String
 loadLib appdir clib
-    = do (fname, fullname) <- locate clib
-         copyLib (appdir </> fname, fullname)
+    = do fname <- locateLib appdir clib
          pure $ "(load-shared-object \""
                                     ++ escapeStringChez fname
                                     ++ "\")\n"
@@ -218,8 +225,9 @@ loadSO : {auto c : Ref Ctxt Defs} ->
 loadSO appdir "" = pure ""
 loadSO appdir mod
     = do d <- getDirs
-         let fs = map (\p => p </> mod)
-                      ((build_dir d </> "ttc") :: extra_dirs d)
+         bdir <- ttcBuildDirectory
+         allDirs <- extraSearchDirectories
+         let fs = map (\p => p </> mod) (bdir :: allDirs)
          Just fname <- firstAvailable fs
             | Nothing => throw (InternalError ("Missing .so:" ++ mod))
          -- Easier to put them all in the same directory, so we don't need
@@ -457,16 +465,16 @@ compileToSS c prof appdir tm outfile
          chez <- coreLift findChez
          version <- coreLift $ chezVersion chez
          fgndefs <- traverse (getFgnCall version) ndefs
-         loadlibs <- traverse (loadLib appdir) (mapMaybe fst fgndefs)
+         loadlibs <- traverse (locateLib appdir) (mapMaybe fst fgndefs)
 
-         compdefs <- traverse (getScheme chezExtPrim chezString) ndefs
+         (sortedDefs, constants) <- sortDefs ndefs
+         compdefs <- traverse (getScheme constants (chezExtPrim constants) chezString) sortedDefs
          let code = fastConcat (map snd fgndefs ++ compdefs)
-         main <- schExp chezExtPrim chezString 0 ctm
+         main <- schExp constants (chezExtPrim constants) chezString 0 ctm
          support <- readDataFile "chez/support.ss"
          extraRuntime <- getExtraRuntime ds
-         let scm = schHeader chez (map snd libs) True ++
+         let scm = schHeader chez (map snd libs ++ loadlibs) True ++
                    support ++ extraRuntime ++ code ++
-                   concat loadlibs ++
                    "(collect-request-handler (lambda () (collect) (blodwen-run-finalisers)))\n" ++
                    main ++ schFooter prof True
          Right () <- coreLift $ writeFile outfile scm
@@ -487,7 +495,7 @@ compileToSO prof chez appDirRel outSsAbs
          Right () <- coreLift $ writeFile tmpFileAbs build
             | Left err => throw (FileErr tmpFileAbs err)
          coreLift_ $ chmodRaw tmpFileAbs 0o755
-         coreLift_ $ system (chez ++ " --script \"" ++ tmpFileAbs ++ "\"")
+         coreLift_ $ system [chez, "--script", tmpFileAbs]
          pure ()
 
 ||| Compile a TT expression to Chez Scheme using incremental module builds
@@ -503,7 +511,7 @@ compileToSSInc c mods libs appdir tm outfile
          loadlibs <- traverse (loadLib appdir) (nub libs)
          loadsos <- traverse (loadSO appdir) (nub mods)
 
-         main <- schExp chezExtPrim chezString 0 ctm
+         main <- schExp empty (chezExtPrim empty) chezString 0 ctm
          support <- readDataFile "chez/support.ss"
 
          let scm = schHeader chez [] False ++
@@ -615,7 +623,7 @@ executeExpr :
 executeExpr c s tmpDir tm
     = do Just sh <- compileExpr False c s tmpDir tmpDir tm "_tmpchez"
             | Nothing => throw (InternalError "compileExpr returned Nothing")
-         coreLift_ $ system sh
+         coreLift_ $ system [sh]
 
 incCompile :
   Ref Ctxt Defs ->
@@ -629,7 +637,7 @@ incCompile c s sourceFile
          cdata <- getIncCompileData False Cases
 
          d <- getDirs
-         let outputDir = build_dir d </> "ttc"
+         outputDir <- ttcBuildDirectory
 
          let ndefs = namedDefs cdata
          if isNil ndefs
@@ -642,7 +650,8 @@ incCompile c s sourceFile
                chez <- coreLift findChez
                version <- coreLift $ chezVersion chez
                fgndefs <- traverse (getFgnCall version) ndefs
-               compdefs <- traverse (getScheme chezExtPrim chezString) ndefs
+               (sortedDefs, constants) <- sortDefs ndefs
+               compdefs <- traverse (getScheme constants (chezExtPrim constants) chezString) sortedDefs
                let code = fastConcat (map snd fgndefs ++ compdefs)
                Right () <- coreLift $ writeFile ssFile code
                   | Left err => throw (FileErr ssFile err)
@@ -654,7 +663,7 @@ incCompile c s sourceFile
                           show ssFile ++ "))"
                Right () <- coreLift $ writeFile tmpFileAbs build
                   | Left err => throw (FileErr tmpFileAbs err)
-               coreLift_ $ system (chez ++ " --script \"" ++ tmpFileAbs ++ "\"")
+               coreLift_ $ system [chez, "--script", tmpFileAbs]
                pure (Just (soFilename, mapMaybe fst fgndefs))
 
 ||| Codegen wrapper for Chez scheme implementation.

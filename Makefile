@@ -13,8 +13,8 @@ TARGET = ${TARGETDIR}/${NAME}
 IDRIS2_CG ?= chez
 
 MAJOR=0
-MINOR=5
-PATCH=1
+MINOR=6
+PATCH=0
 
 GIT_SHA1=
 ifeq ($(shell git status >/dev/null 2>&1; echo $$?), 0)
@@ -49,7 +49,11 @@ TEST_PREFIX ?= ${IDRIS2_CURDIR}/build/env
 IDRIS2_BOOT_PREFIX := ${IDRIS2_CURDIR}/bootstrap-build
 
 # These are the library path in the build dir to be used during build
-export IDRIS2_BOOT_PATH := "${IDRIS2_CURDIR}/libs/prelude/build/ttc${SEP}${IDRIS2_CURDIR}/libs/base/build/ttc${SEP}${IDRIS2_CURDIR}/libs/linear/build/ttc${SEP}${IDRIS2_CURDIR}/libs/network/build/ttc${SEP}${IDRIS2_CURDIR}/libs/contrib/build/ttc${SEP}${IDRIS2_CURDIR}/libs/test/build/ttc"
+IDRIS2_LIBRARIES = prelude base linear network contrib test
+
+IDRIS2_BOOT_PATH =
+$(foreach library,$(IDRIS2_LIBRARIES),$(eval IDRIS2_BOOT_PATH := $(IDRIS2_BOOT_PATH)$(IDRIS2_CURDIR)/libs/$(library)/build/ttc$(SEP)))
+export IDRIS2_BOOT_PATH := "$(IDRIS2_BOOT_PATH)"
 
 export SCHEME
 
@@ -109,7 +113,7 @@ ${TEST_PREFIX}/${NAME_VERSION} :
 	${MAKE} install-support PREFIX=${TEST_PREFIX}
 	cp -rf ${IDRIS2_CURDIR}/libs/prelude/build/ttc ${TEST_PREFIX}/${NAME_VERSION}/prelude-${IDRIS2_VERSION}
 	cp -rf ${IDRIS2_CURDIR}/libs/base/build/ttc    ${TEST_PREFIX}/${NAME_VERSION}/base-${IDRIS2_VERSION}
-	cp -rf ${IDRIS2_CURDIR}/libs/linear/build/ttc ${TEST_PREFIX}/${NAME_VERSION}/linear-${IDRIS2_VERSION}
+	cp -rf ${IDRIS2_CURDIR}/libs/linear/build/ttc  ${TEST_PREFIX}/${NAME_VERSION}/linear-${IDRIS2_VERSION}
 	cp -rf ${IDRIS2_CURDIR}/libs/network/build/ttc ${TEST_PREFIX}/${NAME_VERSION}/network-${IDRIS2_VERSION}
 	cp -rf ${IDRIS2_CURDIR}/libs/contrib/build/ttc ${TEST_PREFIX}/${NAME_VERSION}/contrib-${IDRIS2_VERSION}
 	cp -rf ${IDRIS2_CURDIR}/libs/test/build/ttc    ${TEST_PREFIX}/${NAME_VERSION}/test-${IDRIS2_VERSION}
@@ -118,7 +122,7 @@ ${TEST_PREFIX}/${NAME_VERSION} :
 	${MAKE} install-support PREFIX=${TEST_PREFIX}
 	ln -sf ${IDRIS2_CURDIR}/libs/prelude/build/ttc ${TEST_PREFIX}/${NAME_VERSION}/prelude-${IDRIS2_VERSION}
 	ln -sf ${IDRIS2_CURDIR}/libs/base/build/ttc    ${TEST_PREFIX}/${NAME_VERSION}/base-${IDRIS2_VERSION}
-	ln -sf ${IDRIS2_CURDIR}/libs/linear/build/ttc ${TEST_PREFIX}/${NAME_VERSION}/linear-${IDRIS2_VERSION}
+	ln -sf ${IDRIS2_CURDIR}/libs/linear/build/ttc  ${TEST_PREFIX}/${NAME_VERSION}/linear-${IDRIS2_VERSION}
 	ln -sf ${IDRIS2_CURDIR}/libs/network/build/ttc ${TEST_PREFIX}/${NAME_VERSION}/network-${IDRIS2_VERSION}
 	ln -sf ${IDRIS2_CURDIR}/libs/contrib/build/ttc ${TEST_PREFIX}/${NAME_VERSION}/contrib-${IDRIS2_VERSION}
 	ln -sf ${IDRIS2_CURDIR}/libs/test/build/ttc    ${TEST_PREFIX}/${NAME_VERSION}/test-${IDRIS2_VERSION}
@@ -133,12 +137,18 @@ testenv:
 testenv-clean:
 	$(RM) -r ${TEST_PREFIX}/${NAME_VERSION}
 
+ci-ubuntu-test: test
+ci-macos-test: test
+ci-windows-test:
+	@${MAKE} test except="idris2/repl005"
+
 test: testenv
 	@echo
 	@echo "NOTE: \`${MAKE} test\` does not rebuild Idris or the libraries packaged with it; to do that run \`${MAKE}\`"
 	@if [ ! -x "${TARGET}" ]; then echo "ERROR: Missing IDRIS2 executable. Cannot run tests!\n"; exit 1; fi
 	@echo
-	@${MAKE} -C tests only=$(only) IDRIS2=${TARGET} IDRIS2_PREFIX=${TEST_PREFIX}
+	@${MAKE} -C tests only=$(only) except=$(except) IDRIS2=${TARGET} IDRIS2_PREFIX=${TEST_PREFIX}
+
 
 retest: testenv
 	@echo
@@ -225,7 +235,7 @@ install-with-src-libs:
 	${MAKE} -C libs/contrib install-with-src IDRIS2=${TARGET} IDRIS2_PATH=${IDRIS2_BOOT_PATH} IDRIS2_INC_CGS=${IDRIS2_CG}
 	${MAKE} -C libs/network install-with-src IDRIS2=${TARGET} IDRIS2_PATH=${IDRIS2_BOOT_PATH} IDRIS2_INC_CGS=${IDRIS2_CG}
 	${MAKE} -C libs/test install-with-src    IDRIS2=${TARGET} IDRIS2_PATH=${IDRIS2_BOOT_PATH} IDRIS2_INC_CGS=${IDRIS2_CG}
-	${MAKE} -C libs/linear install-with-src    IDRIS2=${TARGET} IDRIS2_PATH=${IDRIS2_BOOT_PATH} IDRIS2_INC_CGS=${IDRIS2_CG}
+	${MAKE} -C libs/linear install-with-src  IDRIS2=${TARGET} IDRIS2_PATH=${IDRIS2_BOOT_PATH} IDRIS2_INC_CGS=${IDRIS2_CG}
 
 install-libdocs: libdocs
 	mkdir -p ${PREFIX}/${NAME_VERSION}/docs/prelude
@@ -235,12 +245,12 @@ install-libdocs: libdocs
 	mkdir -p ${PREFIX}/${NAME_VERSION}/docs/test
 	mkdir -p ${PREFIX}/${NAME_VERSION}/docs/linear
 	cp -r libs/prelude/build/docs/* ${PREFIX}/${NAME_VERSION}/docs/prelude
-	cp -r libs/base/build/docs/* ${PREFIX}/${NAME_VERSION}/docs/base
+	cp -r libs/base/build/docs/*    ${PREFIX}/${NAME_VERSION}/docs/base
 	cp -r libs/contrib/build/docs/* ${PREFIX}/${NAME_VERSION}/docs/contrib
 	cp -r libs/network/build/docs/* ${PREFIX}/${NAME_VERSION}/docs/network
-	cp -r libs/test/build/docs/* ${PREFIX}/${NAME_VERSION}/docs/test
-	cp -r libs/test/build/docs/* ${PREFIX}/${NAME_VERSION}/docs/linear
-	install -m 644 support/docs/* ${PREFIX}/${NAME_VERSION}/docs
+	cp -r libs/test/build/docs/*    ${PREFIX}/${NAME_VERSION}/docs/test
+	cp -r libs/linear/build/docs/*  ${PREFIX}/${NAME_VERSION}/docs/linear
+	install -m 644 support/docs/*   ${PREFIX}/${NAME_VERSION}/docs
 
 
 .PHONY: bootstrap bootstrap-build bootstrap-racket bootstrap-racket-build bootstrap-test bootstrap-clean
@@ -269,6 +279,9 @@ bootstrap-racket: support
 
 bootstrap-test:
 	$(MAKE) test INTERACTIVE='' IDRIS2_PREFIX=${IDRIS2_BOOT_PREFIX}
+
+ci-windows-bootstrap-test:
+	$(MAKE) test except="idris2/repl005" INTERACTIVE='' IDRIS2_PREFIX=${IDRIS2_BOOT_PREFIX}
 
 bootstrap-clean:
 	$(RM) -r bootstrap-build
